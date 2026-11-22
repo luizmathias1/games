@@ -18,10 +18,17 @@ export class Hud {
   private readonly marker = byId('hitmarker');
   private readonly death = byId('death');
   private readonly deathTimer = byId('death-timer');
+  private readonly pingEl = byId('ping');
   private markerTimer = 0;
 
   setVisible(visible: boolean): void {
     this.root.hidden = !visible;
+  }
+
+  /** Mostra o ping (ida e volta) no canto superior direito. */
+  setPing(ms: number): void {
+    this.pingEl.textContent = `Ping ${ms} ms`;
+    this.pingEl.classList.toggle('bad', ms > 150);
   }
 
   /** Atualiza os números com o estado do jogador local. */

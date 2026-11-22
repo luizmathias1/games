@@ -148,6 +148,18 @@ const tests: [string, () => void][] = [
     assert.equal(s.b.health, 100);
   }],
 
+  ['compensação de lag: o tiro checa a posição que o atirador viu', () => {
+    const s = setup();
+    s.b.body = createBody([-8, 0, -4]);
+    ticks(s, 10);
+    // O alvo dá um passo lateral (x = -5) e o tiro é dado logo depois, sem ping
+    s.b.body = createBody([-5, 0, -4]);
+    s.room.simulate();
+    // Com 0 ms de ping o servidor volta ~100 ms: vê o alvo ainda em x = -8 e acerta
+    step(s, { slot: 2, fireEdge: true });
+    assert.ok(s.out.some((m) => m.type === 'hit'), 'acertou a posição que o atirador viu');
+  }],
+
   ['servidor processa no máximo 2 comandos por tick (anti-speed)', () => {
     const s = setup();
     const batch: MoveInput[] = [];

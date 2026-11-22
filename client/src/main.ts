@@ -14,9 +14,12 @@ import { Ui, type UiState } from './ui';
 import { ViewModel } from './viewmodel';
 
 const DEFAULT_FOV = 75;
+/** Intervalo entre medições de ping (ms). */
+const PING_EVERY_MS = 1000;
 
+const map = buildMap();
 const { renderer, scene, camera } = createGameScene();
-scene.add(buildMapMeshes(buildMap()));
+scene.add(buildMapMeshes(map));
 // A câmera precisa estar na cena: a arma em primeira pessoa é filha dela
 scene.add(camera);
 
@@ -39,9 +42,17 @@ const fx = new Effects(scene);
 const hud = new Hud();
 const viewmodel = new ViewModel(camera);
 viewmodel.setVisible(false);
-const match = new Match(scene, input, (msg) => {
-  conn.send(msg);
-}, fx, hud, viewmodel);
+const match = new Match(
+  scene,
+  input,
+  (msg) => {
+    conn.send(msg);
+  },
+  map,
+  fx,
+  hud,
+  viewmodel,
+);
 
 const ui = new Ui({
   onCreate: (nickname) => {
@@ -82,6 +93,12 @@ conn.onState((s) => {
   ui.render(state);
 });
 
+// Ping: o cliente mede o ida e volta e informa o valor ao servidor (lag compensation)
+let rtt = 0;
+setInterval(() => {
+  if (state.connection === 'open') conn.send({ type: 'ping', t: performance.now(), rtt });
+}, PING_EVERY_MS);
+
 conn.onMessage((msg: ServerMessage) => {
   switch (msg.type) {
     case 'joined':
@@ -116,6 +133,8 @@ conn.onMessage((msg: ServerMessage) => {
       state.error = msg.message;
       break;
     case 'pong':
+      rtt = Math.round(performance.now() - msg.t);
+      hud.setPing(rtt);
       break;
   }
   ui.render(state);
@@ -123,7 +142,7 @@ conn.onMessage((msg: ServerMessage) => {
 
 ui.render(state);
 
-// Loop de render (60+ FPS) com envio de comandos em passo fixo de 30 Hz
+// Loop de render (60+ FPS). Comandos e predição rodam em passo fixo de 30 Hz.
 let last = performance.now();
 let acc = 0;
 
@@ -143,7 +162,7 @@ function frame(now: number): void {
       acc -= TICK_DT;
       match.sendTick();
     }
-    match.update(camera, dt);
+    match.update(camera, dt, acc / TICK_DT);
   } else {
     acc = 0;
     if (camera.fov !== DEFAULT_FOV) {

@@ -1,6 +1,15 @@
 // Sala e sessão de jogador no servidor. O servidor é autoritativo:
 // simula a física e o combate a partir dos comandos recebidos e envia snapshots.
-import { HIT_MULTIPLIER, PLAYER, RESPAWN_SECONDS, TICK_DT, WEAPONS, WEAPON_ORDER, type WeaponId } from '../../shared/config';
+import {
+  HIT_MULTIPLIER,
+  LAG_COMP,
+  PLAYER,
+  RESPAWN_SECONDS,
+  TICK_DT,
+  WEAPONS,
+  WEAPON_ORDER,
+  type WeaponId,
+} from '../../shared/config';
 import { traceShot, type HitPart, type Target } from '../../shared/hitbox';
 import type { MapData } from '../../shared/map';
 import { createBody, stepBody } from '../../shared/physics';
@@ -17,6 +26,17 @@ export const MAX_PLAYERS = 2;
 const MAX_STEPS_PER_TICK = 2;
 /** Limite da fila de comandos guardados por jogador. */
 const MAX_QUEUE = 12;
+/** Quantos ticks de posição guardamos por jogador (1,5 s, para a compensação de lag). */
+const HISTORY_TICKS = 45;
+
+/** Posição de um jogador em um tick passado (usada para voltar no tempo). */
+interface PastPose {
+  tick: number;
+  x: number;
+  y: number;
+  z: number;
+  crouching: boolean;
+}
 
 interface WeaponState {
   mag: number;
@@ -66,6 +86,11 @@ export class PlayerSession {
   kills = 0;
   deaths = 0;
 
+  /** Ping (ida e volta) informado pelo próprio cliente, em ms. */
+  rttMs = 0;
+  /** Posições dos últimos ticks, para a compensação de lag. */
+  history: PastPose[] = [];
+
   constructor(
     readonly id: number,
     readonly nickname: string,
@@ -73,6 +98,20 @@ export class PlayerSession {
     spawn: Vec3,
   ) {
     this.body = createBody(spawn);
+  }
+
+  /** Guarda a posição atual no tick informado. */
+  recordPose(tick: number): void {
+    this.history.push({ tick, x: this.body.x, y: this.body.y, z: this.body.z, crouching: this.body.crouching });
+    if (this.history.length > HISTORY_TICKS) this.history.shift();
+  }
+
+  /** Posição mais recente que não seja posterior ao tick pedido (ou null). */
+  poseAt(tick: number): PastPose | null {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      if (this.history[i].tick <= tick) return this.history[i];
+    }
+    return null;
   }
 
   /** Recebe comandos do cliente. Duplicados e antigos são ignorados. */
@@ -149,10 +188,11 @@ export class Room {
       if (!p.alive) {
         this.dropInputs(p);
         if (this.now >= p.respawnAt) this.respawn(p);
-        continue;
+      } else {
+        this.processInputs(p);
+        if (p.reloadEnd !== null && this.now >= p.reloadEnd) this.finishReload(p);
       }
-      this.processInputs(p);
-      if (p.reloadEnd !== null && this.now >= p.reloadEnd) this.finishReload(p);
+      p.recordPose(this.tick);
     }
 
     const snapshot: PlayerSnapshot[] = this.players.map((p) => {
@@ -175,6 +215,10 @@ export class Room {
         reloading: p.reloadEnd !== null,
         kills: p.kills,
         deaths: p.deaths,
+        vx: p.body.vx,
+        vy: p.body.vy,
+        vz: p.body.vz,
+        onGround: p.body.onGround,
       };
     });
     this.broadcast({ type: 'snapshot', tick: this.tick, players: snapshot });
@@ -269,10 +313,7 @@ export class Room {
     const origin: Vec3 = [p.body.x, eyeY, p.body.z];
     const dir = aimDirection(p.yaw, p.pitch, def.spread);
 
-    const targets: Target[] = this.players
-      .filter((q) => q.alive && q !== p)
-      .map((q) => ({ id: q.id, x: q.body.x, y: q.body.y, z: q.body.z, crouching: q.body.crouching }));
-    const result = traceShot(origin, dir, def.range, this.map, targets, p.id);
+    const result = traceShot(origin, dir, def.range, this.map, this.targetsSeenBy(p), p.id);
 
     if (def.magazine > 0) {
       const to: Vec3 = [
@@ -287,6 +328,22 @@ export class Room {
       const victim = this.players.find((q) => q.id === result.hit!.id);
       if (victim) this.applyHit(p, victim, result.hit.part, origin, def.slot, def.damage);
     }
+  }
+
+  /**
+   * Posições dos adversários como o atirador as via, com compensação de lag:
+   * volta no tempo metade do ping + atraso de interpolação (limitado a maxRewindMs).
+   */
+  private targetsSeenBy(shooter: PlayerSession): Target[] {
+    const rewindMs = Math.min(LAG_COMP.maxRewindMs, shooter.rttMs / 2 + LAG_COMP.interpDelayMs);
+    const pastTick = this.tick - Math.round((rewindMs / 1000) / TICK_DT);
+    return this.players
+      .filter((q) => q.alive && q !== shooter)
+      .map((q) => {
+        const pose = q.poseAt(pastTick);
+        if (pose) return { id: q.id, x: pose.x, y: pose.y, z: pose.z, crouching: pose.crouching };
+        return { id: q.id, x: q.body.x, y: q.body.y, z: q.body.z, crouching: q.body.crouching };
+      });
   }
 
   private applyHit(

@@ -36,6 +36,11 @@ export interface PlayerSnapshot {
   reloading: boolean;
   kills: number;
   deaths: number;
+  /** Velocidade e contato com o chão, para o cliente reconciliar a predição. */
+  vx: number;
+  vy: number;
+  vz: number;
+  onGround: boolean;
 }
 
 export interface SnapshotMessage {
@@ -62,7 +67,8 @@ export type ClientMessage =
   | { type: 'create'; nickname: string }
   | { type: 'join'; code: string; nickname: string }
   | { type: 'input'; inputs: MoveInput[] }
-  | { type: 'ping'; t: number }
+  /** t: relógio do cliente (para medir o ping); rtt: último ping medido pelo cliente, em ms. */
+  | { type: 'ping'; t: number; rtt: number }
   | { type: 'leave' };
 
 export type ServerMessage =
@@ -155,8 +161,11 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       }
       return { type: 'input', inputs };
     }
-    case 'ping':
-      return typeof o.t === 'number' ? { type: 'ping', t: o.t } : null;
+    case 'ping': {
+      if (typeof o.t !== 'number' || !Number.isFinite(o.t)) return null;
+      const rtt = clampNumber(o.rtt, 0, 1000) ?? 0;
+      return { type: 'ping', t: o.t, rtt };
+    }
     case 'leave':
       return { type: 'leave' };
     default:

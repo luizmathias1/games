@@ -108,3 +108,13 @@ export const HIT_MULTIPLIER = {
 
 /** Tempo de espera antes de renascer. */
 export const RESPAWN_SECONDS = 3;
+
+/**
+ * Compensação de lag (lag compensation) e interpolação.
+ * O cliente desenha os adversários com `interpDelayMs` de atraso; o servidor
+ * volta no tempo metade do ping + esse atraso antes de checar um tiro.
+ */
+export const LAG_COMP = {
+  interpDelayMs: 100,
+  maxRewindMs: 400,
+};

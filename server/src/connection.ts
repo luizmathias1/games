@@ -43,6 +43,8 @@ export function attachClient(ws: WebSocket, lobby: Lobby): void {
         break;
 
       case 'ping':
+        // O cliente informa o próprio ping; o servidor usa para compensar lag no tiro
+        if (session) session.rttMs = msg.rtt;
         send({ type: 'pong', t: msg.t });
         break;
 
