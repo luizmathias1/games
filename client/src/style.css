@@ -177,6 +177,146 @@ button:hover {
   font-size: 14px;
 }
 
+/* HUD da partida (fica abaixo dos painéis, acima da cena) */
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+.ch {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+}
+
+.ch.h {
+  width: 14px;
+  height: 2px;
+  left: -7px;
+  top: -1px;
+}
+
+.ch.v {
+  width: 2px;
+  height: 14px;
+  left: -1px;
+  top: -7px;
+}
+
+/* Marcador de acerto: X ao redor da mira */
+#hitmarker {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  opacity: 0;
+}
+
+#hitmarker span {
+  position: absolute;
+  width: 9px;
+  height: 2px;
+  background: #fff;
+  left: 50%;
+  top: 50%;
+}
+
+#hitmarker span:nth-child(1) { transform: translate(-100%, -50%) rotate(45deg); }
+#hitmarker span:nth-child(2) { transform: translate(0, -50%) rotate(-45deg); }
+#hitmarker span:nth-child(3) { transform: translate(-100%, -50%) rotate(-45deg); }
+#hitmarker span:nth-child(4) { transform: translate(0, -50%) rotate(45deg); }
+
+#hitmarker.on {
+  opacity: 1;
+}
+
+#hitmarker.kill span {
+  background: #ff5a4a;
+}
+
+#hud-bottom {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.hp-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 34px;
+  font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+.hp-track {
+  width: 220px;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#hp-bar {
+  height: 100%;
+  width: 100%;
+  background: #6fd46f;
+  transition: width 0.1s linear;
+}
+
+.weapon-wrap {
+  text-align: right;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+#weapon-name {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+#ammo {
+  font-size: 30px;
+  font-weight: 800;
+}
+
+#reload {
+  color: #ffd27a;
+  font-size: 13px;
+}
+
+.death {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(120, 0, 0, 0.35);
+  text-align: center;
+}
+
+.death h2 {
+  font-size: 40px;
+  margin: 0;
+  color: #ff8a7a;
+}
+
 /* Mensagem de erro flutuante */
 .toast {
   position: fixed;

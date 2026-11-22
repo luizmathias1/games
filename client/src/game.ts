@@ -1,21 +1,27 @@
-// Partida no cliente (etapa 2): envia inputs ao servidor, mostra os adversários
-// e posiciona a câmera. Predição e interpolação avançada entram nas próximas etapas.
+// Partida no cliente: envia comandos ao servidor, mostra os adversários,
+// posiciona a câmera e repassa eventos de combate para efeitos e HUD.
+// A predição do jogador local entra na etapa 4.
 import * as THREE from 'three';
-import { PLAYER, TICK_DT } from '../../shared/config';
+import { PLAYER, TICK_DT, WEAPONS, WEAPON_ORDER } from '../../shared/config';
 import type {
   ClientMessage,
+  CombatEvent,
   PlayerInfo,
   PlayerSnapshot,
   SnapshotMessage,
 } from '../../shared/protocol';
 import type { MoveInput } from '../../shared/types';
+import type { Effects } from './effects';
 import type { InputController } from './input';
+import type { Hud } from './hud';
 import { createPlayerModel, type PlayerModel } from './playerModel';
+import type { ViewModel } from './viewmodel';
 
 const TEAM_COLORS = ['#ff7a3d', '#3da5ff'];
 /** Quantos comandos recentes reenviar em cada pacote (tolera perda de pacotes). */
 const RESEND_HISTORY = 4;
 const CROUCH_SCALE = PLAYER.crouchHeight / PLAYER.standHeight;
+const DEFAULT_FOV = 75;
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -36,6 +42,9 @@ export class Match {
     private readonly scene: THREE.Scene,
     private readonly input: InputController,
     private readonly send: (msg: ClientMessage) => void,
+    private readonly fx: Effects,
+    private readonly hud: Hud,
+    private readonly viewmodel: ViewModel,
   ) {}
 
   /** Atualiza a lista de jogadores e cria/remove as malhas dos adversários. */
@@ -80,6 +89,27 @@ export class Match {
     this.snapAt = performance.now();
   }
 
+  /** Eventos pontuais de combate: tiros, acertos e mortes. */
+  onEvent(ev: CombatEvent): void {
+    switch (ev.type) {
+      case 'shot': {
+        const mine = ev.shooter === this.localId;
+        this.fx.tracer(ev.from, ev.to, mine);
+        if (mine) {
+          const def = WEAPONS[WEAPON_ORDER[ev.weapon - 1]];
+          this.input.addRecoil(def.recoil);
+          this.viewmodel.fired();
+        }
+        break;
+      }
+      case 'hit':
+        if (ev.attacker === this.localId) this.hud.hitmarker(ev.killed);
+        break;
+      case 'death':
+        break;
+    }
+  }
+
   /** Chamado a 30 Hz: manda o comando atual (com os recentes) ao servidor. */
   sendTick(): void {
     if (!this.playing) return;
@@ -89,7 +119,7 @@ export class Match {
     this.send({ type: 'input', inputs: [...this.recent] });
   }
 
-  /** Chamado todo frame: interpola os adversários e posiciona a câmera. */
+  /** Chamado todo frame: interpola os adversários, câmera, arma e HUD. */
   update(camera: THREE.PerspectiveCamera, dt: number): void {
     if (!this.playing) return;
     const alpha = Math.min(1, (performance.now() - this.snapAt) / (TICK_DT * 1000));
@@ -105,13 +135,14 @@ export class Match {
       );
       model.group.rotation.y = to.yaw;
       model.body.scale.y = to.crouching ? CROUCH_SCALE : 1;
+      model.group.visible = to.alive;
     }
 
-    // Câmera do jogador local: posição vem do servidor, mira vem do mouse
-    if (this.localId === null) return;
-    const me = this.curr.get(this.localId);
+    const me = this.localId === null ? undefined : this.curr.get(this.localId);
     if (!me) return;
-    const from = this.prev.get(this.localId) ?? me;
+    const from = this.prev.get(this.localId!) ?? me;
+
+    // Câmera: posição vem do servidor, mira vem do mouse
     const eyeTarget = me.crouching ? PLAYER.crouchEyeHeight : PLAYER.standEyeHeight;
     this.eyeHeight += (eyeTarget - this.eyeHeight) * Math.min(1, dt * 12);
     camera.position.set(
@@ -119,6 +150,19 @@ export class Match {
       lerp(from.y, me.y, alpha) + this.eyeHeight,
       lerp(from.z, me.z, alpha),
     );
-    camera.rotation.set(this.input.pitch, this.input.yaw, 0);
+    camera.rotation.set(this.input.aimPitch, this.input.yaw, 0);
+
+    // Arma em uso, zoom da mira e HUD
+    const weaponId = WEAPON_ORDER[me.weapon - 1];
+    const def = WEAPONS[weaponId];
+    this.input.currentSlot = me.weapon;
+    const aiming = this.input.aiming && me.alive && def.aimFov !== null;
+    const fov = aiming ? def.aimFov! : DEFAULT_FOV;
+    if (Math.abs(camera.fov - fov) > 0.01) {
+      camera.fov = lerp(camera.fov, fov, Math.min(1, dt * 12));
+      camera.updateProjectionMatrix();
+    }
+    this.viewmodel.show(weaponId, aiming, dt);
+    this.hud.update(me, def);
   }
 }

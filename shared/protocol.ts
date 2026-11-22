@@ -1,6 +1,7 @@
 // Protocolo de mensagens entre cliente e servidor (JSON sobre WebSocket).
 // Tudo que chega do cliente é validado aqui: nunca confie no cliente.
-import type { MoveInput } from './types';
+import type { HitPart } from './hitbox';
+import type { MoveInput, Vec3 } from './types';
 
 export const ROOM_CODE_LENGTH = 5;
 /** Letras sem I, L e O para evitar confusão visual (ex.: I com 1, O com 0). */
@@ -24,6 +25,17 @@ export interface PlayerSnapshot {
   crouching: boolean;
   /** Último seq de input que o servidor já processou para este jogador. */
   ack: number;
+  health: number;
+  alive: boolean;
+  /** Segundos até renascer (0 se estiver vivo). */
+  respawnIn: number;
+  /** Slot da arma em uso (1, 2 ou 3). */
+  weapon: number;
+  mag: number;
+  reserve: number;
+  reloading: boolean;
+  kills: number;
+  deaths: number;
 }
 
 export interface SnapshotMessage {
@@ -31,6 +43,20 @@ export interface SnapshotMessage {
   tick: number;
   players: PlayerSnapshot[];
 }
+
+/** Eventos pontuais do combate (enviados a todos na sala). */
+export type CombatEvent =
+  | { type: 'shot'; shooter: number; weapon: number; from: Vec3; to: Vec3; hit: boolean }
+  | {
+      type: 'hit';
+      attacker: number;
+      victim: number;
+      part: HitPart;
+      damage: number;
+      killed: boolean;
+      from: Vec3;
+    }
+  | { type: 'death'; victim: number; killer: number; weapon: number };
 
 export type ClientMessage =
   | { type: 'create'; nickname: string }
@@ -43,6 +69,7 @@ export type ServerMessage =
   | { type: 'joined'; code: string; playerId: number }
   | { type: 'roomState'; players: PlayerInfo[]; phase: 'waiting' | 'playing' }
   | SnapshotMessage
+  | CombatEvent
   | { type: 'error'; message: string }
   | { type: 'pong'; t: number };
 
@@ -78,7 +105,8 @@ export function parseMoveInput(v: unknown): MoveInput | null {
   const strafe = clampNumber(o.strafe, -1, 1);
   const yaw = clampNumber(o.yaw, -1e6, 1e6);
   const pitch = clampNumber(o.pitch, -Math.PI / 2, Math.PI / 2);
-  if (seq === null || forward === null || strafe === null || yaw === null || pitch === null) {
+  const slot = clampNumber(o.slot, 0, 3);
+  if (seq === null || forward === null || strafe === null || yaw === null || pitch === null || slot === null) {
     return null;
   }
   return {
@@ -90,6 +118,10 @@ export function parseMoveInput(v: unknown): MoveInput | null {
     jump: o.jump === true,
     crouch: o.crouch === true,
     run: o.run === true,
+    fire: o.fire === true,
+    fireEdge: o.fireEdge === true,
+    reload: o.reload === true,
+    slot: Math.round(slot),
   };
 }
 

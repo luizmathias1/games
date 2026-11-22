@@ -3,15 +3,22 @@ import * as THREE from 'three';
 import { TICK_DT } from '../../shared/config';
 import { buildMap } from '../../shared/map';
 import type { ServerMessage } from '../../shared/protocol';
+import { Effects } from './effects';
 import { Match } from './game';
+import { Hud } from './hud';
 import { InputController } from './input';
 import { buildMapMeshes } from './mapBuilder';
 import { Connection } from './net';
 import { createGameScene } from './scene';
 import { Ui, type UiState } from './ui';
+import { ViewModel } from './viewmodel';
+
+const DEFAULT_FOV = 75;
 
 const { renderer, scene, camera } = createGameScene();
 scene.add(buildMapMeshes(buildMap()));
+// A câmera precisa estar na cena: a arma em primeira pessoa é filha dela
+scene.add(camera);
 
 const state: UiState = {
   connection: 'connecting',
@@ -28,9 +35,13 @@ const input = new InputController(renderer.domElement, (locked) => {
   state.locked = locked;
   ui.render(state);
 });
+const fx = new Effects(scene);
+const hud = new Hud();
+const viewmodel = new ViewModel(camera);
+viewmodel.setVisible(false);
 const match = new Match(scene, input, (msg) => {
   conn.send(msg);
-});
+}, fx, hud, viewmodel);
 
 const ui = new Ui({
   onCreate: (nickname) => {
@@ -96,6 +107,11 @@ conn.onMessage((msg: ServerMessage) => {
     case 'snapshot':
       match.onSnapshot(msg);
       break;
+    case 'shot':
+    case 'hit':
+    case 'death':
+      match.onEvent(msg);
+      break;
     case 'error':
       state.error = msg.message;
       break;
@@ -107,17 +123,21 @@ conn.onMessage((msg: ServerMessage) => {
 
 ui.render(state);
 
-// Loop de render (60+ FPS) com envio de inputs em passo fixo de 30 Hz
+// Loop de render (60+ FPS) com envio de comandos em passo fixo de 30 Hz
 let last = performance.now();
 let acc = 0;
 
 function frame(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
+  const inMatch = state.screen === 'match';
 
-  input.applyLook();
+  input.applyLook(dt);
+  fx.update(dt);
+  hud.setVisible(inMatch);
+  viewmodel.setVisible(inMatch);
 
-  if (state.screen === 'match') {
+  if (inMatch) {
     acc += dt;
     while (acc >= TICK_DT) {
       acc -= TICK_DT;
@@ -126,6 +146,10 @@ function frame(now: number): void {
     match.update(camera, dt);
   } else {
     acc = 0;
+    if (camera.fov !== DEFAULT_FOV) {
+      camera.fov = DEFAULT_FOV;
+      camera.updateProjectionMatrix();
+    }
     // Fundo de menu: câmera girando lentamente em volta do mapa
     const t = now / 1000;
     camera.position.set(Math.sin(t * 0.08) * 30, 14, Math.cos(t * 0.08) * 30);

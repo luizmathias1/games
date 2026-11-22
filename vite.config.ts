@@ -6,6 +6,8 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    // Three.js sozinho passa de 500 kB; o jogo inteiro é um único bundle pequeno em gzip
+    chunkSizeWarningLimit: 800,
   },
   server: {
     port: 5173,

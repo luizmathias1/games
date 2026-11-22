@@ -25,4 +25,12 @@ export interface MoveInput {
   jump: boolean;
   crouch: boolean;
   run: boolean;
+  /** Botão de tiro segurado (usado por armas automáticas). */
+  fire: boolean;
+  /** Clique novo neste comando (usado por armas semiautomáticas e faca). */
+  fireEdge: boolean;
+  /** Tecla R apertada. */
+  reload: boolean;
+  /** Troca de arma pelas teclas 1/2/3 (0 = sem troca). */
+  slot: number;
 }

@@ -57,6 +57,27 @@
       </div>
     </div>
 
+    <!-- HUD da partida -->
+    <div id="hud" hidden>
+      <div id="crosshair"><span class="ch h"></span><span class="ch v"></span></div>
+      <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
+      <div id="hud-bottom">
+        <div class="hp-wrap">
+          <span id="hp-text">100</span>
+          <div class="hp-track"><div id="hp-bar"></div></div>
+        </div>
+        <div class="weapon-wrap">
+          <div id="weapon-name">Rifle Ágil</div>
+          <div id="ammo">30 / 60</div>
+          <div id="reload" hidden>Recarregando...</div>
+        </div>
+      </div>
+      <div id="death" class="death" hidden>
+        <h2>Você morreu</h2>
+        <p id="death-timer"></p>
+      </div>
+    </div>
+
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

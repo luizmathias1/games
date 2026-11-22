@@ -17,6 +17,10 @@ const cmd = (over: Partial<MoveInput> = {}): MoveInput => ({
   jump: false,
   crouch: false,
   run: false,
+  fire: false,
+  fireEdge: false,
+  reload: false,
+  slot: 0,
   ...over,
 });
 
