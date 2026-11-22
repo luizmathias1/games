@@ -48,6 +48,10 @@ export function attachClient(ws: WebSocket, lobby: Lobby): void {
         send({ type: 'pong', t: msg.t });
         break;
 
+      case 'rematch':
+        if (session?.room) session.room.requestRematch(session);
+        break;
+
       case 'leave':
         if (session) lobby.leave(session);
         session = null;

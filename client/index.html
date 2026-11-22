@@ -43,6 +43,17 @@
       </div>
     </div>
 
+    <!-- Fim de partida: vitória/derrota, placar e revanche -->
+    <div id="screen-end" class="screen" hidden>
+      <div class="panel">
+        <h2 id="end-title">Vitória!</h2>
+        <p id="end-score" class="sub"></p>
+        <button id="btn-rematch" type="button" class="primary">Revanche</button>
+        <p id="rematch-status" class="sub"></p>
+        <button id="btn-end-leave" type="button" class="secondary">Sair da sala</button>
+      </div>
+    </div>
+
     <!-- Captura do mouse e sensibilidade (aparece na partida sem Pointer Lock) -->
     <div id="overlay" hidden>
       <div class="panel">
@@ -61,6 +72,18 @@
     <div id="hud" hidden>
       <div id="crosshair"><span class="ch h"></span><span class="ch v"></span></div>
       <div id="ping">Ping -- ms</div>
+      <div id="match-info"><span id="timer">10:00</span><span id="score">0 : 0</span></div>
+      <div id="killfeed"></div>
+      <div id="dmg"></div>
+      <div id="scoreboard" hidden>
+        <table>
+          <thead>
+            <tr><th>Jogador</th><th>Abates</th><th>Mortes</th></tr>
+          </thead>
+          <tbody id="sb-body"></tbody>
+        </table>
+        <p class="hint">Solte Tab para fechar</p>
+      </div>
       <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
       <div id="hud-bottom">
         <div class="hp-wrap">

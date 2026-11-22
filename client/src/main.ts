@@ -10,6 +10,7 @@ import { InputController } from './input';
 import { buildMapMeshes } from './mapBuilder';
 import { Connection } from './net';
 import { createGameScene } from './scene';
+import { Sounds } from './sounds';
 import { Ui, type UiState } from './ui';
 import { ViewModel } from './viewmodel';
 
@@ -29,6 +30,9 @@ const state: UiState = {
   code: '',
   players: [],
   phase: 'waiting',
+  localId: null,
+  winnerId: null,
+  endSummary: '',
   locked: false,
   error: null,
 };
@@ -40,19 +44,21 @@ const input = new InputController(renderer.domElement, (locked) => {
 });
 const fx = new Effects(scene);
 const hud = new Hud();
+const sounds = new Sounds();
 const viewmodel = new ViewModel(camera);
 viewmodel.setVisible(false);
-const match = new Match(
+const match = new Match({
   scene,
   input,
-  (msg) => {
+  send: (msg) => {
     conn.send(msg);
   },
   map,
   fx,
   hud,
   viewmodel,
-);
+  sounds,
+});
 
 const ui = new Ui({
   onCreate: (nickname) => {
@@ -69,7 +75,13 @@ const ui = new Ui({
     conn.send({ type: 'leave' });
     backToMenu();
   },
-  onCapture: () => input.requestLock(),
+  onRematch: () => {
+    conn.send({ type: 'rematch' });
+  },
+  onCapture: () => {
+    sounds.unlock(); // o áudio só pode começar depois de um clique
+    input.requestLock();
+  },
   onSensitivity: (slider) => input.setSensitivity(slider),
 });
 
@@ -79,6 +91,9 @@ function backToMenu(): void {
   state.code = '';
   state.players = [];
   state.phase = 'waiting';
+  state.localId = null;
+  state.winnerId = null;
+  state.endSummary = '';
   if (document.pointerLockElement) document.exitPointerLock();
   ui.render(state);
 }
@@ -103,6 +118,7 @@ conn.onMessage((msg: ServerMessage) => {
   switch (msg.type) {
     case 'joined':
       match.localId = msg.playerId;
+      state.localId = msg.playerId;
       state.code = msg.code;
       state.screen = 'room';
       state.error = null;
@@ -111,6 +127,7 @@ conn.onMessage((msg: ServerMessage) => {
       const wasPlaying = state.phase === 'playing';
       state.players = msg.players;
       state.phase = msg.phase;
+      state.winnerId = msg.winnerId;
       match.setRoster(msg.players, msg.phase === 'playing');
       // Ao começar a partida, a mira já aponta para o adversário
       const me = msg.players.find((p) => p.id === match.localId);
@@ -118,7 +135,12 @@ conn.onMessage((msg: ServerMessage) => {
         input.yaw = me.yaw;
         input.pitch = 0;
       }
-      if (state.screen !== 'menu') state.screen = msg.phase === 'playing' ? 'match' : 'room';
+      if (msg.phase === 'ended') {
+        // Libera o mouse para clicar nos botões da tela final
+        state.endSummary = match.summary();
+        if (document.pointerLockElement) document.exitPointerLock();
+      }
+      if (state.screen !== 'menu') state.screen = msg.phase === 'waiting' ? 'room' : 'match';
       break;
     }
     case 'snapshot':
@@ -149,14 +171,14 @@ let acc = 0;
 function frame(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  const inMatch = state.screen === 'match';
+  const playing = state.screen === 'match' && state.phase === 'playing';
 
   input.applyLook(dt);
   fx.update(dt);
-  hud.setVisible(inMatch);
-  viewmodel.setVisible(inMatch);
+  hud.setVisible(playing);
+  viewmodel.setVisible(playing);
 
-  if (inMatch) {
+  if (playing) {
     acc += dt;
     while (acc >= TICK_DT) {
       acc -= TICK_DT;
@@ -169,7 +191,7 @@ function frame(now: number): void {
       camera.fov = DEFAULT_FOV;
       camera.updateProjectionMatrix();
     }
-    // Fundo de menu: câmera girando lentamente em volta do mapa
+    // Fundo de menu e tela final: câmera girando lentamente em volta do mapa
     const t = now / 1000;
     camera.position.set(Math.sin(t * 0.08) * 30, 14, Math.cos(t * 0.08) * 30);
     camera.lookAt(new THREE.Vector3(0, 1, 0));

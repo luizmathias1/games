@@ -160,6 +160,36 @@ const tests: [string, () => void][] = [
     assert.ok(s.out.some((m) => m.type === 'hit'), 'acertou a posição que o atirador viu');
   }],
 
+  ['chegar a 20 abates encerra a partida com o vencedor', () => {
+    const s = setup();
+    s.a.kills = 19;
+    step(s, { slot: 2, fireEdge: true }); // tiro de pistola na cabeça de B
+    assert.equal(s.room.phase, 'ended');
+    assert.equal(s.room.winnerId, 1);
+  }],
+
+  ['revanche: a partida recomeça quando os dois pedirem', () => {
+    const s = setup();
+    s.a.kills = 19;
+    step(s, { slot: 2, fireEdge: true });
+    s.room.requestRematch(s.a);
+    assert.equal(s.room.phase, 'ended', 'só um pediu');
+    s.room.requestRematch(s.b);
+    assert.equal(s.room.phase, 'playing');
+    assert.equal(s.a.kills, 0);
+    assert.equal(s.b.alive, true);
+  }],
+
+  ['fim do tempo (10 min) dá a vitória a quem tem mais abates', () => {
+    const s = setup();
+    s.a.kills = 3;
+    s.b.kills = 1;
+    const limit = Math.ceil(600 / TICK_DT) + 5;
+    for (let i = 0; i < limit && s.room.phase === 'playing'; i++) s.room.simulate();
+    assert.equal(s.room.phase, 'ended');
+    assert.equal(s.room.winnerId, 1);
+  }],
+
   ['servidor processa no máximo 2 comandos por tick (anti-speed)', () => {
     const s = setup();
     const batch: MoveInput[] = [];

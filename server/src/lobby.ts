@@ -43,7 +43,8 @@ export class Lobby {
       this.rooms.delete(room.code);
       return;
     }
-    if (room.phase === 'playing') room.stopMatch();
+    // Saiu no meio da partida ou depois do fim: a sala volta a esperar outro jogador
+    if (room.phase !== 'waiting') room.stopMatch();
     else room.broadcastState();
   }
 

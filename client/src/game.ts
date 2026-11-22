@@ -4,6 +4,7 @@
 //   comandos ainda não confirmados; a diferença visual é suavizada.
 // - Interpolação: os adversários são desenhados com atraso (interpDelayMs) a partir
 //   de um buffer de snapshots, para o movimento ficar suave mesmo com lag.
+// - Eventos de combate viram efeitos, sons, killfeed e marcadores.
 import * as THREE from 'three';
 import { LAG_COMP, PLAYER, TICK_DT, WEAPONS, WEAPON_ORDER } from '../../shared/config';
 import type { MapData } from '../../shared/map';
@@ -15,12 +16,24 @@ import type {
   PlayerSnapshot,
   SnapshotMessage,
 } from '../../shared/protocol';
-import type { BodyState, MoveInput } from '../../shared/types';
+import type { BodyState, MoveInput, Vec3 } from '../../shared/types';
 import type { Effects } from './effects';
-import type { Hud } from './hud';
+import type { Hud, ScoreRow } from './hud';
 import type { InputController } from './input';
 import { createPlayerModel, type PlayerModel } from './playerModel';
+import type { Sounds } from './sounds';
 import type { ViewModel } from './viewmodel';
+
+export interface MatchDeps {
+  scene: THREE.Scene;
+  input: InputController;
+  send: (msg: ClientMessage) => void;
+  map: MapData;
+  fx: Effects;
+  hud: Hud;
+  viewmodel: ViewModel;
+  sounds: Sounds;
+}
 
 const TEAM_COLORS = ['#ff7a3d', '#3da5ff'];
 /** Quantos comandos recentes reenviar em cada pacote (tolera perda de pacotes). */
@@ -29,6 +42,8 @@ const RESEND_HISTORY = 4;
 const MAX_PENDING = 120;
 /** Por quanto tempo guardamos snapshots para a interpolação (ms). */
 const BUFFER_MS = 1000;
+/** Distância (m) percorrida entre dois passos. */
+const STEP_LENGTH = 2.2;
 const CROUCH_SCALE = PLAYER.crouchHeight / PLAYER.standHeight;
 const DEFAULT_FOV = 75;
 
@@ -68,8 +83,10 @@ export class Match {
   /** Verdadeiro enquanto a partida está em andamento. */
   playing = false;
 
+  private names = new Map<number, string>();
   private views = new Map<number, PlayerModel>();
   private buffer: SnapshotFrame[] = [];
+  private timeLeft = 0;
   private seq = 1;
   private recent: MoveInput[] = [];
   private eyeHeight: number = PLAYER.standEyeHeight;
@@ -81,29 +98,28 @@ export class Match {
   /** Diferença visual entre a posição mostrada e a predita; some com o tempo. */
   private offset: Vec = { x: 0, y: 0, z: 0 };
 
-  constructor(
-    private readonly scene: THREE.Scene,
-    private readonly input: InputController,
-    private readonly send: (msg: ClientMessage) => void,
-    private readonly map: MapData,
-    private readonly fx: Effects,
-    private readonly hud: Hud,
-    private readonly viewmodel: ViewModel,
-  ) {}
+  // Áudio e HUD auxiliares
+  private camPos: Vec3 = [0, 0, 0];
+  private lastPos = new Map<number, Vec>();
+  private stepDist = new Map<number, number>();
+  private wasReloading = false;
+
+  constructor(private readonly d: MatchDeps) {}
 
   /** Atualiza a lista de jogadores e cria/remove as malhas dos adversários. */
   setRoster(players: PlayerInfo[], playing: boolean): void {
     const ids = new Set(players.map((p) => p.id));
     for (const [id, model] of this.views) {
       if (!ids.has(id)) {
-        this.scene.remove(model.group);
+        this.d.scene.remove(model.group);
         this.views.delete(id);
       }
     }
+    this.names = new Map(players.map((p) => [p.id, p.nickname]));
     players.forEach((p, index) => {
       if (p.id === this.localId || this.views.has(p.id)) return;
       const model = createPlayerModel(p.nickname, TEAM_COLORS[index % TEAM_COLORS.length]);
-      this.scene.add(model.group);
+      this.d.scene.add(model.group);
       this.views.set(p.id, model);
     });
 
@@ -113,10 +129,13 @@ export class Match {
 
   /** Limpa tudo ao sair da sala. */
   reset(): void {
-    for (const model of this.views.values()) this.scene.remove(model.group);
+    for (const model of this.views.values()) this.d.scene.remove(model.group);
     this.views.clear();
+    this.names.clear();
     this.buffer = [];
     this.recent = [];
+    this.lastPos.clear();
+    this.stepDist.clear();
     this.playing = false;
     this.localId = null;
     this.resetPrediction();
@@ -135,6 +154,7 @@ export class Match {
     for (const p of msg.players) players.set(p.id, p);
     this.buffer.push({ t: now, players });
     while (this.buffer.length > 2 && now - this.buffer[0].t > BUFFER_MS) this.buffer.shift();
+    this.timeLeft = msg.timeLeft;
 
     const me = this.localId === null ? undefined : players.get(this.localId);
     if (!me) return;
@@ -168,7 +188,7 @@ export class Match {
     this.pending = this.pending.slice(i + 1);
     let body = server;
     for (const p of this.pending) {
-      body = stepBody(body, p.cmd, TICK_DT, this.map);
+      body = stepBody(body, p.cmd, TICK_DT, this.d.map);
       p.body = body;
     }
     this.predicted = body;
@@ -182,47 +202,76 @@ export class Match {
     this.offset = err > 2 ? { x: 0, y: 0, z: 0 } : { x: dx, y: dy, z: dz };
   }
 
-  /** Eventos pontuais de combate: tiros, acertos e mortes. */
+  /** Volume de um som na posição `pos`, relativo à câmera do jogador. */
+  private volumeAt(pos: Vec3): number {
+    return this.d.sounds.volumeAt(pos, this.camPos);
+  }
+
+  /** Ângulo de `from` em relação à mira (0 = à frente, positivo = direita). */
+  private angleTo(from: Vec3): number {
+    const yaw = this.d.input.yaw;
+    const dx = from[0] - this.camPos[0];
+    const dz = from[2] - this.camPos[2];
+    const front = dx * -Math.sin(yaw) + dz * -Math.cos(yaw);
+    const right = dx * Math.cos(yaw) + dz * -Math.sin(yaw);
+    return Math.atan2(right, front);
+  }
+
+  /** Eventos pontuais de combate: tiros, acertos, mortes. */
   onEvent(ev: CombatEvent): void {
+    const { fx, hud, sounds, input, viewmodel } = this.d;
     switch (ev.type) {
       case 'shot': {
         const mine = ev.shooter === this.localId;
-        this.fx.tracer(ev.from, ev.to, mine);
+        fx.tracer(ev.from, ev.to, mine);
+        sounds.shot(ev.weapon, mine ? 1 : this.volumeAt(ev.from));
         if (mine) {
-          const def = WEAPONS[WEAPON_ORDER[ev.weapon - 1]];
-          this.input.addRecoil(def.recoil);
-          this.viewmodel.fired();
+          input.addRecoil(WEAPONS[WEAPON_ORDER[ev.weapon - 1]].recoil);
+          viewmodel.fired();
         }
         break;
       }
       case 'hit':
-        if (ev.attacker === this.localId) this.hud.hitmarker(ev.killed);
+        if (ev.attacker === this.localId) {
+          hud.hitmarker(ev.killed);
+          sounds.hitConfirm(ev.killed);
+        }
+        if (ev.victim === this.localId) {
+          hud.damaged(this.angleTo(ev.from));
+          sounds.hurt();
+        }
         break;
-      case 'death':
+      case 'death': {
+        const killer = this.names.get(ev.killer) ?? 'Jogador';
+        const victim = this.names.get(ev.victim) ?? 'Jogador';
+        const weapon = WEAPONS[WEAPON_ORDER[ev.weapon - 1]].name;
+        const mine = ev.killer === this.localId || ev.victim === this.localId;
+        hud.killfeed(`${killer}  ▸  ${victim}  (${weapon})`, mine);
+        sounds.death(0.7);
         break;
+      }
     }
   }
 
   /** Chamado a 30 Hz: envia o comando atual e o aplica na predição. */
   sendTick(): void {
     if (!this.playing) return;
-    const cmd = this.input.buildCommand(this.seq++);
+    const cmd = this.d.input.buildCommand(this.seq++);
     this.recent.push(cmd);
     if (this.recent.length > RESEND_HISTORY) this.recent.shift();
-    this.send({ type: 'input', inputs: [...this.recent] });
+    this.d.send({ type: 'input', inputs: [...this.recent] });
 
     if (this.predicted) {
       this.prevPredicted = this.predicted;
-      this.predicted = stepBody(this.predicted, cmd, TICK_DT, this.map);
+      this.predicted = stepBody(this.predicted, cmd, TICK_DT, this.d.map);
       this.pending.push({ cmd, body: this.predicted });
       if (this.pending.length > MAX_PENDING) this.pending.shift();
     }
   }
 
   /** Estado do jogador local na última snapshot. */
-  private latestMe(): PlayerSnapshot | undefined {
-    if (this.localId === null || this.buffer.length === 0) return undefined;
-    return this.buffer[this.buffer.length - 1].players.get(this.localId);
+  private latestPlayers(): Map<number, PlayerSnapshot> | undefined {
+    return this.buffer.length === 0 ? undefined : this.buffer[this.buffer.length - 1].players;
   }
 
   /** Posição de um adversário no instante renderT, interpolada entre snapshots. */
@@ -247,9 +296,43 @@ export class Match {
     };
   }
 
+  /** Toca um passo a cada STEP_LENGTH metros andados (por jogador). */
+  private footsteps(id: number, pos: Vec, volumeScale: number): void {
+    const prev = this.lastPos.get(id);
+    this.lastPos.set(id, pos);
+    if (!prev) return;
+    const moved = Math.hypot(pos.x - prev.x, pos.z - prev.z);
+    const acc = (this.stepDist.get(id) ?? 0) + moved;
+    if (acc >= STEP_LENGTH) {
+      this.stepDist.set(id, acc - STEP_LENGTH);
+      this.d.sounds.step(volumeScale * this.volumeAt([pos.x, pos.y, pos.z]));
+    } else {
+      this.stepDist.set(id, acc);
+    }
+  }
+
+  /** Placar: tabela com todos os jogadores. */
+  private scoreRows(players: Map<number, PlayerSnapshot>): ScoreRow[] {
+    return [...players.values()].map((p) => ({
+      name: this.names.get(p.id) ?? 'Jogador',
+      kills: p.kills,
+      deaths: p.deaths,
+      mine: p.id === this.localId,
+    }));
+  }
+
+  /** Resumo textual do placar final (ex.: "Luiz 20 x 7 Amigo"). */
+  summary(): string {
+    const players = this.latestPlayers();
+    if (!players) return '';
+    const parts = [...players.values()].map((p) => ({ name: this.names.get(p.id) ?? '?', kills: p.kills }));
+    return parts.map((p) => `${p.name} ${p.kills}`).join('  x  ');
+  }
+
   /** Chamado todo frame. alpha (0..1) interpola a predição entre dois passos de 30 Hz. */
   update(camera: THREE.PerspectiveCamera, dt: number, alpha: number): void {
     if (!this.playing) return;
+    const { hud, viewmodel, input, sounds } = this.d;
     const renderT = performance.now() - LAG_COMP.interpDelayMs;
 
     for (const [id, model] of this.views) {
@@ -259,10 +342,12 @@ export class Match {
       model.group.rotation.y = s.yaw;
       model.body.scale.y = s.crouching ? CROUCH_SCALE : 1;
       model.group.visible = s.alive;
+      if (s.alive) this.footsteps(id, { x: s.x, y: s.y, z: s.z }, 0.8);
     }
 
-    const me = this.latestMe();
-    if (!me) return;
+    const players = this.latestPlayers();
+    const me = players?.get(this.localId ?? -1);
+    if (!players || !me) return;
 
     // A diferença de reconciliação some em ~0,1 s
     const decay = Math.exp(-dt * 12);
@@ -282,6 +367,7 @@ export class Match {
         z: lerp(q.z, p.z, alpha) + this.offset.z,
       };
       crouching = p.crouching;
+      this.footsteps(this.localId!, pos, 0.35);
     } else {
       pos = { x: me.x, y: me.y, z: me.z };
       crouching = me.crouching;
@@ -289,19 +375,27 @@ export class Match {
     const eyeTarget = crouching ? PLAYER.crouchEyeHeight : PLAYER.standEyeHeight;
     this.eyeHeight += (eyeTarget - this.eyeHeight) * Math.min(1, dt * 12);
     camera.position.set(pos.x, pos.y + this.eyeHeight, pos.z);
-    camera.rotation.set(this.input.aimPitch, this.input.yaw, 0);
+    camera.rotation.set(input.aimPitch, input.yaw, 0);
+    this.camPos = [camera.position.x, camera.position.y, camera.position.z];
 
     // Arma em uso, zoom da mira e HUD
     const weaponId = WEAPON_ORDER[me.weapon - 1];
     const def = WEAPONS[weaponId];
-    this.input.currentSlot = me.weapon;
-    const aiming = this.input.aiming && me.alive && def.aimFov !== null;
+    input.currentSlot = me.weapon;
+    const aiming = input.aiming && me.alive && def.aimFov !== null;
     const fov = aiming ? def.aimFov! : DEFAULT_FOV;
     if (Math.abs(camera.fov - fov) > 0.01) {
       camera.fov = lerp(camera.fov, fov, Math.min(1, dt * 12));
       camera.updateProjectionMatrix();
     }
-    this.viewmodel.show(weaponId, aiming, dt);
-    this.hud.update(me, def);
+    if (me.reloading && !this.wasReloading) sounds.reload(0.8);
+    this.wasReloading = me.reloading;
+
+    viewmodel.show(weaponId, aiming, dt);
+    hud.update(me, def);
+
+    const other = [...players.values()].find((p) => p.id !== this.localId);
+    hud.setMatchInfo(this.timeLeft, me.kills, other?.kills ?? 0);
+    hud.setScoreboard(input.isDown('Tab') ? this.scoreRows(players) : null);
   }
 }

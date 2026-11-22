@@ -110,6 +110,11 @@ export class InputController {
     this.recoil *= Math.exp(-dt * RECOIL_RECOVERY);
   }
 
+  /** Verdadeiro enquanto a tecla (código, ex.: 'Tab') está apertada. */
+  isDown(code: string): boolean {
+    return this.keys.has(code);
+  }
+
   /** Mira final (mouse + coice), a mesma que é enviada ao servidor. */
   get aimPitch(): number {
     return clampPitch(this.pitch + this.recoil);

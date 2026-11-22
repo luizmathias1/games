@@ -13,6 +13,8 @@ export interface PlayerInfo {
   nickname: string;
   /** Direção inicial da mira na partida (para o jogador já olhar para o adversário). */
   yaw: number;
+  /** Quer jogar a revanche (só vale depois do fim da partida). */
+  rematch: boolean;
 }
 
 export interface PlayerSnapshot {
@@ -47,6 +49,8 @@ export interface SnapshotMessage {
   type: 'snapshot';
   tick: number;
   players: PlayerSnapshot[];
+  /** Segundos restantes da partida. */
+  timeLeft: number;
 }
 
 /** Eventos pontuais do combate (enviados a todos na sala). */
@@ -69,11 +73,20 @@ export type ClientMessage =
   | { type: 'input'; inputs: MoveInput[] }
   /** t: relógio do cliente (para medir o ping); rtt: último ping medido pelo cliente, em ms. */
   | { type: 'ping'; t: number; rtt: number }
+  | { type: 'rematch' }
   | { type: 'leave' };
+
+export type RoomPhase = 'waiting' | 'playing' | 'ended';
 
 export type ServerMessage =
   | { type: 'joined'; code: string; playerId: number }
-  | { type: 'roomState'; players: PlayerInfo[]; phase: 'waiting' | 'playing' }
+  | {
+      type: 'roomState';
+      players: PlayerInfo[];
+      phase: RoomPhase;
+      /** Quem venceu (null = empate ou partida ainda não terminou). */
+      winnerId: number | null;
+    }
   | SnapshotMessage
   | CombatEvent
   | { type: 'error'; message: string }
@@ -166,6 +179,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const rtt = clampNumber(o.rtt, 0, 1000) ?? 0;
       return { type: 'ping', t: o.t, rtt };
     }
+    case 'rematch':
+      return { type: 'rematch' };
     case 'leave':
       return { type: 'leave' };
     default:

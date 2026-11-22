@@ -199,6 +199,120 @@ button:hover {
   color: #ff8a7a;
 }
 
+/* Tempo e placar no topo */
+#match-info {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+#timer {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+#score {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+/* Killfeed no canto superior direito */
+#killfeed {
+  position: absolute;
+  top: 40px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 13px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.feed-line {
+  background: rgba(0, 0, 0, 0.45);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.feed-line.mine {
+  color: #ffd27a;
+}
+
+/* Indicador de dano: arco vermelho na direção de quem atirou */
+#dmg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: rotate(var(--angle, 0deg));
+  opacity: 0;
+}
+
+#dmg::before {
+  content: "";
+  position: absolute;
+  left: -90px;
+  top: -190px;
+  width: 180px;
+  height: 60px;
+  background: radial-gradient(ellipse at top, rgba(255, 60, 40, 0.85), rgba(255, 60, 40, 0) 70%);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+
+#dmg.on {
+  animation: dmg-flash 0.9s ease-out forwards;
+}
+
+@keyframes dmg-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Placar completo (segure Tab) */
+#scoreboard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(10, 12, 16, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 16px 22px;
+  min-width: 360px;
+  text-align: center;
+}
+
+#scoreboard table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+
+#scoreboard th,
+#scoreboard td {
+  padding: 6px 10px;
+  text-align: left;
+}
+
+#scoreboard th:not(:first-child),
+#scoreboard td:not(:first-child) {
+  text-align: right;
+}
+
+#scoreboard tr.mine td {
+  color: #ffd27a;
+  font-weight: 700;
+}
+
 #crosshair {
   position: absolute;
   left: 50%;

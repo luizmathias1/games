@@ -3,6 +3,7 @@
 import {
   HIT_MULTIPLIER,
   LAG_COMP,
+  MATCH,
   PLAYER,
   RESPAWN_SECONDS,
   TICK_DT,
@@ -17,6 +18,7 @@ import type {
   CombatEvent,
   PlayerInfo,
   PlayerSnapshot,
+  RoomPhase,
   ServerMessage,
 } from '../../shared/protocol';
 import type { BodyState, MoveInput, Vec3 } from '../../shared/types';
@@ -85,6 +87,8 @@ export class PlayerSession {
   reloadEnd: number | null = null;
   kills = 0;
   deaths = 0;
+  /** Pediu revanche depois do fim da partida. */
+  wantsRematch = false;
 
   /** Ping (ida e volta) informado pelo próprio cliente, em ms. */
   rttMs = 0;
@@ -129,10 +133,14 @@ export class PlayerSession {
 
 export class Room {
   readonly players: PlayerSession[] = [];
-  phase: 'waiting' | 'playing' = 'waiting';
+  phase: RoomPhase = 'waiting';
   tick = 0;
+  /** Vencedor da última partida (null = empate). */
+  winnerId: number | null = null;
   /** Tempo do servidor em segundos (tick * TICK_DT). */
   private now = 0;
+  /** Tempo do servidor em que a partida começou. */
+  private matchStart = 0;
 
   constructor(
     readonly code: string,
@@ -140,7 +148,12 @@ export class Room {
   ) {}
 
   info(): PlayerInfo[] {
-    return this.players.map((p) => ({ id: p.id, nickname: p.nickname, yaw: p.yaw }));
+    return this.players.map((p) => ({
+      id: p.id,
+      nickname: p.nickname,
+      yaw: p.yaw,
+      rematch: p.wantsRematch,
+    }));
   }
 
   broadcast(msg: ServerMessage): void {
@@ -148,13 +161,21 @@ export class Room {
   }
 
   broadcastState(): void {
-    this.broadcast({ type: 'roomState', players: this.info(), phase: this.phase });
+    this.broadcast({
+      type: 'roomState',
+      players: this.info(),
+      phase: this.phase,
+      winnerId: this.winnerId,
+    });
   }
 
   /** Começa a partida: cada jogador vai para um spawn de lados opostos. */
   startMatch(): void {
     this.phase = 'playing';
+    this.winnerId = null;
+    this.matchStart = this.now;
     this.players.forEach((p, i) => {
+      p.wantsRematch = false;
       // Jogador 0 nasce no lado A (olha para +Z); jogador 1 no lado B (olha para -Z)
       p.body = createBody(this.map.spawns[i === 0 ? 0 : 2]);
       p.yaw = i === 0 ? Math.PI : 0;
@@ -175,7 +196,27 @@ export class Room {
   /** Volta para a sala de espera (algum jogador saiu). */
   stopMatch(): void {
     this.phase = 'waiting';
+    this.winnerId = null;
+    for (const p of this.players) p.wantsRematch = false;
     this.broadcastState();
+  }
+
+  /** Encerra a partida. winnerId null = empate. */
+  endMatch(winnerId: number | null): void {
+    this.phase = 'ended';
+    this.winnerId = winnerId;
+    this.broadcastState();
+  }
+
+  /** Jogador pede revanche. A partida recomeça quando os dois pedirem. */
+  requestRematch(session: PlayerSession): void {
+    if (this.phase !== 'ended') return;
+    session.wantsRematch = true;
+    if (this.players.length === MAX_PLAYERS && this.players.every((q) => q.wantsRematch)) {
+      this.startMatch();
+    } else {
+      this.broadcastState();
+    }
   }
 
   /** Um tick do servidor: aplica comandos, combate e envia o snapshot. */
@@ -183,6 +224,12 @@ export class Room {
     if (this.phase !== 'playing') return;
     this.tick++;
     this.now = this.tick * TICK_DT;
+
+    // Fim do tempo: quem tiver mais abates vence (empate se igualar)
+    if (this.now - this.matchStart >= MATCH.durationSeconds) {
+      this.endMatch(this.leaderId());
+      return;
+    }
 
     for (const p of this.players) {
       if (!p.alive) {
@@ -221,7 +268,16 @@ export class Room {
         onGround: p.body.onGround,
       };
     });
-    this.broadcast({ type: 'snapshot', tick: this.tick, players: snapshot });
+    const timeLeft = Math.max(0, MATCH.durationSeconds - (this.now - this.matchStart));
+    this.broadcast({ type: 'snapshot', tick: this.tick, players: snapshot, timeLeft });
+  }
+
+  /** Id do jogador com mais abates (null se houver empate ou ninguém). */
+  private leaderId(): number | null {
+    if (this.players.length === 0) return null;
+    const best = Math.max(...this.players.map((p) => p.kills));
+    const leaders = this.players.filter((p) => p.kills === best);
+    return leaders.length === 1 ? leaders[0].id : null;
   }
 
   private processInputs(p: PlayerSession): void {
@@ -367,6 +423,7 @@ export class Room {
       victim.reloadEnd = null;
       victim.queue = [];
       this.emit({ type: 'death', victim: victim.id, killer: attacker.id, weapon: weaponSlot });
+      if (attacker.kills >= MATCH.killsToWin) this.endMatch(attacker.id);
     }
   }
 

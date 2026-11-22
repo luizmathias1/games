@@ -109,6 +109,12 @@ export const HIT_MULTIPLIER = {
 /** Tempo de espera antes de renascer. */
 export const RESPAWN_SECONDS = 3;
 
+/** Regras da partida: termina ao chegar em killsToWin abates ou ao fim do tempo. */
+export const MATCH = {
+  killsToWin: 20,
+  durationSeconds: 600,
+};
+
 /**
  * Compensação de lag (lag compensation) e interpolação.
  * O cliente desenha os adversários com `interpDelayMs` de atraso; o servidor
