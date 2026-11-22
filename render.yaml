@@ -1,0 +1,19 @@
+# Blueprint do Render: um único Web Service (plano Free) com cliente + servidor.
+# Como usar: no Render, New > Blueprint > escolher o repositório luizmathias1/games.
+services:
+  - type: web
+    name: brasa-arena
+    runtime: node
+    plan: free
+    branch: main
+    # Instala tudo (inclui devDependencies, que trazem o Vite e o esbuild) e faz o build
+    buildCommand: npm install --include=dev && npm run build
+    # Sobe o servidor Node, que serve o build (pasta dist) e o WebSocket na mesma porta
+    startCommand: npm start
+    # Render considera o serviço no ar quando /health responde 200
+    healthCheckPath: /health
+    # Todo push na main gera um novo deploy automático
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

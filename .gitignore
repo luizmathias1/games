@@ -17,3 +17,4 @@ server-dist/
 .DS_Store
 Thumbs.db
 npm-debug.log*
+*.log
