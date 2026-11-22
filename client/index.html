@@ -9,16 +9,51 @@
   <body>
     <div id="app"></div>
 
-    <div id="overlay">
+    <div id="banner" class="banner" hidden>Conectando ao servidor...</div>
+    <div id="error" class="toast"></div>
+
+    <!-- Menu: criar ou entrar em uma sala -->
+    <div id="screen-menu" class="screen">
       <div class="panel">
         <h1>Brasa Arena</h1>
-        <p>Modo teste local (etapa 1). Clique para capturar o mouse.</p>
+        <p class="sub">Duelo rápido 1 contra 1 no navegador</p>
+        <label class="field">
+          Apelido
+          <input id="nick" maxlength="16" placeholder="Seu apelido" autocomplete="off" />
+        </label>
+        <button id="btn-create" type="button" class="primary">Criar sala</button>
+        <div class="divider">ou</div>
+        <label class="field">
+          Código da sala
+          <input id="code" maxlength="5" placeholder="ABCDE" autocomplete="off" />
+        </label>
+        <button id="btn-join" type="button" class="secondary">Entrar na sala</button>
+      </div>
+    </div>
+
+    <!-- Sala de espera: mostra o código para o amigo entrar -->
+    <div id="screen-room" class="screen" hidden>
+      <div class="panel">
+        <h2>Sala</h2>
+        <div id="room-code" class="code">-----</div>
+        <p class="sub">Envie esse código para seu amigo.</p>
+        <ul id="player-list" class="players"></ul>
+        <p id="room-status" class="sub"></p>
+        <button id="btn-leave" type="button" class="secondary">Sair da sala</button>
+      </div>
+    </div>
+
+    <!-- Captura do mouse e sensibilidade (aparece na partida sem Pointer Lock) -->
+    <div id="overlay" hidden>
+      <div class="panel">
+        <h2>Partida</h2>
+        <p>Clique para capturar o mouse.</p>
         <label class="row">
           Sensibilidade
           <input id="sens" type="range" min="1" max="10" step="0.5" value="6" />
         </label>
-        <button id="start-btn" type="button">Jogar</button>
-        <p class="hint">WASD mover · Espaço pular · Ctrl agachar · Shift correr · Esc sair do mouse</p>
+        <button id="btn-capture" type="button" class="primary">Capturar mouse</button>
+        <p class="hint">WASD mover · Espaço pular · Ctrl agachar · Shift correr · Esc solta o mouse</p>
       </div>
     </div>
 

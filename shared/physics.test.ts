@@ -13,6 +13,7 @@ const cmd = (over: Partial<MoveInput> = {}): MoveInput => ({
   forward: 0,
   strafe: 0,
   yaw: 0,
+  pitch: 0,
   jump: false,
   crouch: false,
   run: false,

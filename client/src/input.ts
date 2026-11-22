@@ -69,6 +69,7 @@ export class InputController {
       forward: on ? (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0) : 0,
       strafe: on ? (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0) : 0,
       yaw: this.yaw,
+      pitch: this.pitch,
       jump: on && k.has('Space'),
       crouch: on && (k.has('ControlLeft') || k.has('ControlRight')),
       run: on && (k.has('ShiftLeft') || k.has('ShiftRight')),

@@ -17,10 +17,11 @@ export interface BodyState {
 
 /** Comando de movimento numerado (o cliente envia isso ao servidor). */
 export interface MoveInput {
-  seq: number; // número sequencial do input
+  seq: number; // número sequencial do input (começa em 1)
   forward: number; // -1..1 (S/W)
   strafe: number; // -1..1 (A/D)
   yaw: number; // rotação horizontal da câmera, em radianos
+  pitch: number; // rotação vertical da câmera, em radianos
   jump: boolean;
   crouch: boolean;
   run: boolean;
